@@ -22,9 +22,34 @@ impl Pool{
         pity / (self.num_items as f32 - pull as f32 + pity)
     }
 
-    fn hard_pity() -> u32{
-        1
+    fn consecutive_probability(&self , pull: u32, ) -> f32{
+        let mut probability = self.pull_probability(pull);
+        for n in 2..pull{
+            probability = probability * self.pull_probability(n) 
+        }
+        1.00 - probability
     }
+
+    //Probability at n consecutive pulls
+    fn consecutive_pulls(&self , pull: u32) -> f32{
+        1.0 - self.consecutive_probability(pull)
+    }
+
+    //Jackpot probability at specifically n pull
+    fn at_pull(&self,pull: u32) -> f32{
+        let mut probability: f32 = 0.0;
+        for n in 1..pull-1{
+            probability = self.pull_probability(n)
+        }
+        probability * self.pull_probability(pull)
+        
+    }
+
+    fn average_jackpot(&self) -> f32 {
+        for n in 1..self.hard_pity
+    }
+
+
 }
 
 
