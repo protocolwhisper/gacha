@@ -3,4 +3,9 @@ name = "gacha"
 version = "0.1.0"
 edition = "2024"
 
+[workspace]
+members = ["crates/gacha-web"]
+resolver = "3"
+
 [dependencies]
+rand = "0.10.2"

@@ -1,7 +1,4 @@
-mod gacha;
-mod types;
-
-use types::{Pool, PoolState};
+use gacha::{Item, Pool, PoolState};
 
 fn main() {
     // 30 items: 2 jackpot + 5 gold + 5 silver + 18 normal.
@@ -34,10 +31,21 @@ fn main() {
         pool.average_jackpot(&state)
     );
 
-    // This records a sample non-jackpot result. A random draw can be added later.
-    state.record_pull(false);
-    println!(
-        "After one miss, pull 2 jackpot chance: {:.2}%",
-        pool.pull_probability(&state) * 100.0
-    );
+    let mut rng = rand::rng();
+
+    println!("\nTen real random pulls:");
+    for pull_number in 1..=10 {
+        let jackpot_chance = pool.pull_probability(&state) * 100.0;
+        let Some(item) = pool.pull(&mut state, &mut rng) else {
+            break;
+        };
+
+        println!("Pull {pull_number:>2}: {item:?} (jackpot chance was {jackpot_chance:.2}%)");
+
+        if item == Item::Jackpot {
+            println!("         Pity reset after jackpot");
+        }
+    }
+
+    println!("\nState after draws: {state:#?}");
 }

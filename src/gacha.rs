@@ -1,4 +1,6 @@
-use crate::types::{Pool, PoolState};
+use rand::{Rng, RngExt};
+
+use crate::types::{Item, Pool, PoolState};
 
 impl Pool {
     pub fn pull_probability(&self, state: &PoolState) -> f32 {
@@ -29,6 +31,36 @@ impl Pool {
         total_jackpot_weight / (non_jackpot_weight + total_jackpot_weight)
     }
 
+    /// Draws and removes one reward, updating pity and all remaining counts.
+    pub fn pull<R: Rng + ?Sized>(&self, state: &mut PoolState, rng: &mut R) -> Option<Item> {
+        if state.remaining_items == 0 {
+            return None;
+        }
+
+        let jackpot_probability = self.pull_probability(state);
+        let item = if rng.random::<f32>() < jackpot_probability {
+            Item::Jackpot
+        } else {
+            let remaining_non_jackpots =
+                state.remaining_gold + state.remaining_silver + state.remaining_normal;
+
+            if remaining_non_jackpots == 0 {
+                return None;
+            }
+
+            let selection = rng.random_range(0..remaining_non_jackpots);
+            if selection < state.remaining_gold {
+                Item::Gold
+            } else if selection < state.remaining_gold + state.remaining_silver {
+                Item::Silver
+            } else {
+                Item::Normal
+            }
+        };
+
+        state.record_pull(item).then_some(item)
+    }
+
     // Probability of at least one jackpot within the next `pulls` pulls.
     pub fn consecutive_probability(&self, state: &PoolState, pulls: u32) -> f32 {
         let mut missed_every_pull = 1.0;
@@ -42,7 +74,7 @@ impl Pool {
                 break;
             }
 
-            if !simulated_state.record_pull(false) {
+            if !simulated_state.record_miss() {
                 break;
             }
         }
@@ -72,7 +104,7 @@ impl Pool {
             }
 
             missed_previous *= 1.0 - probability;
-            if probability == 1.0 || !simulated_state.record_pull(false) {
+            if probability == 1.0 || !simulated_state.record_miss() {
                 return 0.0;
             }
         }
@@ -90,6 +122,7 @@ impl Pool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{SeedableRng, rngs::StdRng};
 
     fn example_pool() -> Pool {
         Pool {
@@ -135,8 +168,11 @@ mod tests {
         let pool = example_pool();
         let mut state = PoolState::new(&pool);
 
-        for _ in 0..20 {
-            assert!(state.record_pull(false));
+        for _ in 0..18 {
+            assert!(state.record_pull(Item::Normal));
+        }
+        for _ in 0..2 {
+            assert!(state.record_pull(Item::Gold));
         }
 
         let expected = (2.0 * 1.15) / (8.0 + 2.0 * 1.15);
@@ -148,8 +184,8 @@ mod tests {
         let pool = example_pool();
         let mut state = PoolState::new(&pool);
 
-        assert!(state.record_pull(false));
-        assert!(state.record_pull(true));
+        assert!(state.record_pull(Item::Normal));
+        assert!(state.record_pull(Item::Jackpot));
 
         assert_eq!(state.remaining_items, 28);
         assert_eq!(state.remaining_jackpots, 1);
@@ -163,9 +199,13 @@ mod tests {
         let pool = example_pool();
         let mut state = PoolState::new(&pool);
 
-        for _ in 0..24 {
-            assert!(state.record_pull(false));
+        for _ in 0..18 {
+            assert!(state.record_pull(Item::Normal));
         }
+        for _ in 0..5 {
+            assert!(state.record_pull(Item::Silver));
+        }
+        assert!(state.record_pull(Item::Gold));
 
         assert_eq!(pool.pull_probability(&state), 1.0);
     }
@@ -179,5 +219,50 @@ mod tests {
             .sum();
 
         assert!((total - 1.0).abs() < 0.000_001);
+    }
+
+    #[test]
+    fn random_pulls_remove_every_selected_reward() {
+        let pool = example_pool();
+        let mut state = PoolState::new(&pool);
+        let mut rng = StdRng::seed_from_u64(7);
+        let mut counts = [0; 4];
+
+        while let Some(item) = pool.pull(&mut state, &mut rng) {
+            let index = match item {
+                Item::Jackpot => 0,
+                Item::Gold => 1,
+                Item::Silver => 2,
+                Item::Normal => 3,
+            };
+            counts[index] += 1;
+        }
+
+        assert_eq!(counts, [2, 5, 5, 18]);
+        assert_eq!(state.remaining_items, 0);
+        assert_eq!(state.remaining_jackpots, 0);
+        assert_eq!(state.remaining_gold, 0);
+        assert_eq!(state.remaining_silver, 0);
+        assert_eq!(state.remaining_normal, 0);
+        assert_eq!(state.pulls_made, 30);
+    }
+
+    #[test]
+    fn hard_pity_forces_a_jackpot_during_a_real_pull() {
+        let pool = example_pool();
+        let mut state = PoolState::new(&pool);
+        let mut rng = StdRng::seed_from_u64(99);
+
+        for _ in 0..18 {
+            assert!(state.record_pull(Item::Normal));
+        }
+        for _ in 0..5 {
+            assert!(state.record_pull(Item::Silver));
+        }
+        assert!(state.record_pull(Item::Gold));
+
+        assert_eq!(pool.pull(&mut state, &mut rng), Some(Item::Jackpot));
+        assert_eq!(state.remaining_jackpots, 1);
+        assert_eq!(state.misses_since_jackpot, 0);
     }
 }
